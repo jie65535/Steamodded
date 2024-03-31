@@ -38,55 +38,93 @@ function SMODS.injectDecks()
 	local replacedId = ""
 	local replacedName = ""
 
-	for i, deck in ipairs(SMODS.Decks) do
-		-- Prepare some Datas
-		id = i + minId - 1
+    for i, deck in ipairs(SMODS.Decks) do
+        -- Prepare some Datas
+        id = i + minId - 1
 
-		local deck_obj = {
-			stake = 1,
-			key = deck.slug,
-			discovered = deck.discovered,
-			alerted = true,
-			name = deck.name,
-			set = "Back",
-			unlocked = deck.unlocked,
-			order = id - 1,
-			pos = deck.spritePos,
-			config = deck.config
-		}
-		-- Now we replace the others
-		G.P_CENTERS[deck.slug] = deck_obj
-		G.P_CENTER_POOLS.Back[id - 1] = deck_obj
+        local deck_obj = {
+            stake = 1,
+            key = deck.slug,
+            discovered = deck.discovered,
+            alerted = true,
+            name = deck.name,
+            set = "Back",
+            unlocked = deck.unlocked,
+            order = id - 1,
+            pos = deck.spritePos,
+            config = deck.config
+        }
 
-		-- Setup Localize text
-		G.localization.descriptions["Back"][deck.slug] = deck.loc_txt
+        -- Now we replace the others
+        G.P_CENTERS[deck.slug] = deck_obj
+        G.P_CENTER_POOLS.Back[id - 1] = deck_obj
 
-		-- Load it
-		for g_k, group in pairs(G.localization) do
-			if g_k == 'descriptions' then
-			  for _, set in pairs(group) do
-				for _, center in pairs(set) do
-				  center.text_parsed = {}
-				  for _, line in ipairs(center.text) do
-					center.text_parsed[#center.text_parsed+1] = loc_parse_string(line)
-				  end
-				  center.name_parsed = {}
-				  for _, line in ipairs(type(center.name) == 'table' and center.name or {center.name}) do
-					center.name_parsed[#center.name_parsed+1] = loc_parse_string(line)
-				  end
-				  if center.unlock then
-					center.unlock_parsed = {}
-					for _, line in ipairs(center.unlock) do
-					  center.unlock_parsed[#center.unlock_parsed+1] = loc_parse_string(line)
-					end
-				  end
-				end
-			  end
-			end
-		  end
+        -- Setup Localize text
+        G.localization.descriptions["Back"][deck.slug] = deck.loc_txt
 
-		sendDebugMessage("The Deck named " .. deck.name .. " with the slug " .. deck.slug .. " have been registered at the id " .. id .. ".")
+        sendDebugMessage("The Deck named " ..
+        deck.name .. " with the slug " .. deck.slug .. " have been registered at the id " .. id .. ".")
+    end
+end
+
+local back_initref = Back.init;
+function Back:init(selected_back)
+	back_initref(self, selected_back)
+	self.atlas = "centers"
+    if selected_back.config.atlas then
+        self.atlas = selected_back.config.atlas
+    end
+end
+
+local back_changetoref = Back.change_to;
+function Back:change_to(new_back)
+	back_changetoref(self, new_back)
+	self.atlas = "centers"
+    if new_back.config.atlas then
+        self.atlas = new_back.config.atlas
+    end
+end
+
+local change_viewed_backref = G.FUNCS.change_viewed_back
+G.FUNCS.change_viewed_back = function(args)
+	change_viewed_backref(args)
+	
+	for key, val in pairs(G.sticker_card.area.cards) do
+		val.children.back = false
+		val:set_ability(val.config.center, true)
+	  end
+end
+
+local set_spritesref = Card.set_sprites;
+function Card:set_sprites(_center, _front)
+	if _center then 
+		if not self.children.back then
+            local atlas_id = "centers"
+
+			if G.GAME.selected_back then
+                if G.GAME.selected_back.atlas then
+                    atlas_id = G.GAME.selected_back.atlas
+                end
+            end
+
+            if G.GAME.viewed_back and G.GAME.viewed_back ~= G.GAME.selected_back then
+                if G.GAME.viewed_back.atlas then
+                    atlas_id = G.GAME.viewed_back.atlas
+                end
+                
+            end
+			
+            self.children.back = Sprite(self.T.x, self.T.y, self.T.w, self.T.h, G.ASSET_ATLAS[atlas_id], self.params.bypass_back or (self.playing_card and G.GAME[self.back].pos or G.P_CENTERS['b_red'].pos))
+            atlas_id = "centers"
+            self.children.back.states.hover = self.states.hover
+            self.children.back.states.click = self.states.click
+            self.children.back.states.drag = self.states.drag
+            self.children.back.states.collide.can = false
+            self.children.back:set_role({major = self, role_type = 'Glued', draw_major = self})
+        end
 	end
+
+	set_spritesref(self, _center, _front);
 end
 
 ----------------------------------------------
