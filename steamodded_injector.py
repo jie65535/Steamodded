@@ -136,11 +136,13 @@ else:
 
 # Check if the SFX archive path is provided
 if len(sys.argv) < 2:
-    print("Please drag and drop the SFX archive onto this executable.")
-    seven_zip_dir.cleanup()
-    sys.exit(1)
-
-sfx_archive_path = sys.argv[1]
+    sfx_archive_path = input("请输入 Balatro.exe 文件路径（可直接拖入）：")
+    if not os.path.exists(sfx_archive_path):
+        print("Please drag and drop the SFX archive onto this executable.")
+        seven_zip_dir.cleanup()
+        sys.exit(1)
+else:
+    sfx_archive_path = sys.argv[1]
 print(f"SFX Archive received: {sfx_archive_path}")
 
 # Temporary directory for extraction and modification
@@ -179,6 +181,5 @@ print("SFX Archive updated.")
 seven_zip_dir.cleanup()
 temp_dir.cleanup()
 
-print("Process completed successfully.")
-print("Press any key to exit...")
+print("处理完成，按任意键退出...")
 input()
