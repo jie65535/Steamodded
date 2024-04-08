@@ -45,48 +45,81 @@ function SMODS.Tarot:register()
 end
 
 function SMODS.injectTarots()
-	local minId = table_length(G.P_CENTER_POOLS['Tarot']) + 1
-	local id = 0
-	local i = 0
-	local tarot = nil
-	for _, slug in ipairs(SMODS.BUFFERS.Tarots) do
-		tarot = SMODS.Tarots[slug]
-		i = i + 1
-		-- Prepare some Datas
-		id = i + minId
-		local tarot_obj = {
-			unlocked = tarot.unlocked,
-			discovered = tarot.discovered,
-			consumeable = tarot.consumeable,
-			name = tarot.name,
-			set = "Tarot",
-			order = id,
-			key = tarot.slug,
-			pos = tarot.pos,
-			config = tarot.config,
-			effect = tarot.effect,
-			cost_mult = tarot.cost_mult,
-			atlas = tarot.atlas,
-			mod_name = tarot.mod_name,
-			badge_colour = tarot.badge_colour
-		}
+    local minId = table_length(G.P_CENTER_POOLS['Tarot']) + 1
+    local id = 0
+    local i = 0
+    local tarot = nil
+    for _, slug in ipairs(SMODS.BUFFERS.Tarots) do
+        tarot = SMODS.Tarots[slug]
+		if tarot.order then
+            id = tarot.order
+        else
+			i = i + 1
+        	id = i + minId
+		end
+        local tarot_obj = {
+            unlocked = tarot.unlocked,
+            discovered = tarot.discovered,
+            consumeable = tarot.consumeable,
+            name = tarot.name,
+            set = "Tarot",
+            order = id,
+            key = tarot.slug,
+            pos = tarot.pos,
+            config = tarot.config,
+            effect = tarot.effect,
+            cost = tarot.cost,
+            cost_mult = tarot.cost_mult,
+            atlas = tarot.atlas,
+            mod_name = tarot.mod_name,
+            badge_colour = tarot.badge_colour
+        }
 
-		for _i, sprite in ipairs(SMODS.Sprites) do
-			if sprite.name == tarot_obj.key then
-				tarot_obj.atlas = sprite.name
+        for _i, sprite in ipairs(SMODS.Sprites) do
+            if sprite.name == tarot_obj.key then
+                tarot_obj.atlas = sprite.name
+            end
+        end
+
+        -- Now we replace the others
+        G.P_CENTERS[tarot.slug] = tarot_obj
+        if not tarot.taken_ownership then
+			table.insert(G.P_CENTER_POOLS['Tarot'], tarot_obj)
+		else
+			for k, v in ipairs(G.P_CENTER_POOLS['Tarot']) do
+				if v.key == slug then G.P_CENTER_POOLS['Tarot'][k] = tarot_obj end
 			end
 		end
+        -- Setup Localize text
+        G.localization.descriptions["Tarot"][tarot.slug] = tarot.loc_txt
+        sendInfoMessage("Registered Tarot " .. tarot.name .. " with the slug " .. tarot.slug .. " at ID " .. id .. ".", 'ConsumableAPI')
+    end
+end
 
-		-- Now we replace the others
-		G.P_CENTERS[tarot.slug] = tarot_obj
-		table.insert(G.P_CENTER_POOLS['Tarot'], tarot_obj)
-
-		-- Setup Localize text
-		G.localization.descriptions["Tarot"][tarot.slug] = tarot.loc_txt
-		sendDebugMessage("The Tarot named " .. tarot.name .. " with the slug " .. tarot.slug ..
-			" have been registered at the id " .. id .. ".")
-	end
-	SMODS.BUFFERS.Tarots = {}
+function SMODS.Tarot:take_ownership(slug)
+    if not (string.sub(slug, 1, 2) == 'c_') then slug = 'c_' .. slug end
+    local obj = G.P_CENTERS[slug]
+    if not obj then
+        sendWarnMessage('Tried to take ownership of non-existent Tarot: ' .. slug, 'ConsumableAPI')
+        return nil
+    end
+    if obj.mod_name then
+        sendWarnMessage('Can only take ownership of unclaimed vanilla Tarots! ' ..
+            slug .. ' belongs to ' .. obj.mod_name, 'ConsumableAPI')
+        return nil
+    end
+    o = {}
+    setmetatable(o, self)
+    self.__index = self
+    o.loc_txt = G.localization.descriptions['Tarot'][slug]
+    o.slug = slug
+    for k, v in pairs(obj) do
+        o[k] = v
+    end
+	o.mod_name = SMODS._MOD_NAME
+    o.badge_colour = SMODS._BADGE_COLOUR
+	o.taken_ownership = true
+	return o
 end
 
 function create_UIBox_your_collection_tarots()
@@ -175,14 +208,14 @@ function generate_card_ui(_c, full_UI_table, specific_vars, card_type, badges, h
 	local name_override = nil
 	local info_queue = {}
 
-	local loc_vars = {}
+	local loc_vars = nil
 
 	if not (card_type == 'Locked') and not hide_desc and not (specific_vars and specific_vars.debuffed) then
 		local key = _c.key
 		local center_obj = SMODS.Tarots[key] or SMODS.Planets[key] or SMODS.Spectrals[key] or SMODS.Vouchers[key]
 		if center_obj and center_obj.loc_def and type(center_obj.loc_def) == 'function' then
 			local o, m = center_obj.loc_def(_c, info_queue)
-			if o and next(o) then loc_vars = o end
+			if o then loc_vars = o end
 			if m then main_end = m end
 		end
 		local joker_obj = SMODS.Jokers[key]
@@ -197,7 +230,7 @@ function generate_card_ui(_c, full_UI_table, specific_vars, card_type, badges, h
 		end
 	end
 
-	if next(loc_vars) or next(info_queue) then
+	if loc_vars or next(info_queue) then
 		if full_UI_table.name then
 			full_UI_table.info[#full_UI_table.info + 1] = {}
 			desc_nodes = full_UI_table.info[#full_UI_table.info]
@@ -226,7 +259,7 @@ function generate_card_ui(_c, full_UI_table, specific_vars, card_type, badges, h
 		if main_start then
 			desc_nodes[#desc_nodes + 1] = main_start
 		end
-		if next(loc_vars) then
+		if loc_vars then
 			localize { type = 'descriptions', key = _c.key, set = _c.set, nodes = desc_nodes, vars = loc_vars }
 			if not ((specific_vars and not specific_vars.sticker) and (card_type == 'Default' or card_type == 'Enhanced')) then
 				if desc_nodes == full_UI_table.main and not full_UI_table.name then
@@ -277,32 +310,36 @@ end
 
 local card_can_use_consumeable_ref = Card.can_use_consumeable
 function Card:can_use_consumeable(any_state, skip_check)
-	if not skip_check and ((G.play and #G.play.cards > 0) or
-			(G.CONTROLLER.locked) or
-			(G.GAME.STOP_USE and G.GAME.STOP_USE > 0))
-	then
-		return false
-	end
-	if (G.STATE == G.STATES.HAND_PLAYED or G.STATE == G.STATES.DRAW_TO_HAND or G.STATE == G.STATES.PLAY_TAROT) and not any_state then
-		return false
-	end
-	local t = nil
-	local key = self.config.center.key
-	local center_obj = SMODS.Tarots[key] or SMODS.Planets[key] or SMODS.Spectrals[key]
-	if center_obj and center_obj.can_use and type(center_obj.can_use) == 'function' then
-		t = center_obj.can_use(self) or t
-	end
-	if not (t == nil) then
-		return t
-	else
-		return card_can_use_consumeable_ref(self, any_state, skip_check)
-	end
+    if not skip_check and ((G.play and #G.play.cards > 0) or
+            (G.CONTROLLER.locked) or
+            (G.GAME.STOP_USE and G.GAME.STOP_USE > 0))
+    then
+        return false
+    end
+    if (G.STATE == G.STATES.HAND_PLAYED or G.STATE == G.STATES.DRAW_TO_HAND or G.STATE == G.STATES.PLAY_TAROT) and not any_state then
+        return false
+    end
+    local t = nil
+    local key = self.config.center.key
+    local center_obj = SMODS.Tarots[key] or SMODS.Planets[key] or SMODS.Spectrals[key]
+    if center_obj and center_obj.can_use and type(center_obj.can_use) == 'function' then
+        t = center_obj.can_use(self) or t
+    end
+    if not (t == nil) then
+        return t
+    else
+        return card_can_use_consumeable_ref(self, any_state, skip_check)
+    end
 end
 
 local card_h_popup_ref = G.UIDEF.card_h_popup
 function G.UIDEF.card_h_popup(card)
 	local t = card_h_popup_ref(card)
-	if not card.config.center then return t end
+    if not card.config.center or -- no center
+	(card.config.center.unlocked == false and not card.bypass_lock) or -- locked card
+	card.debuff or -- debuffed card
+	(not card.config.center.discovered and ((card.area ~= G.jokers and card.area ~= G.consumeables and card.area) or not card.area)) -- undiscovered card
+	then return t end
 	local badges = t.nodes[1].nodes[1].nodes[1].nodes[3]
 	badges = badges and badges.nodes or nil
 	local key = card.config.center.key

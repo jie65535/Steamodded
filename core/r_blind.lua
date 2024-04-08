@@ -8,10 +8,10 @@ SMODS.Blind = {
     vars = {},
     debuff = {},
     pos = { x = 0, y = 0 },
-    boss = {},
-    boss_colour =
-        HEX('FFFFFF'),
-    defeated = false
+    --boss = {},
+    --boss_colour =
+    --    HEX('FFFFFF'),
+    discovered = false
 }
 
 function SMODS.Blind:new(name, slug, loc_txt, dollars, mult, vars, debuff, pos, boss, boss_colour, defeated, atlas)
@@ -47,11 +47,14 @@ function SMODS.injectBlinds()
     local id = 0
     local i = 0
     local blind = nil
-
     for _, slug in ipairs(SMODS.BUFFERS.Blinds) do
-        i = i + 1
-        id = i + minId
         blind = SMODS.Blinds[slug]
+        if blind.order then
+            id = blind.order
+        else
+            i = i + 1
+            id = minId + i
+        end
         local blind_obj = {
             key = blind.slug,
             order = id,
@@ -64,7 +67,8 @@ function SMODS.injectBlinds()
             boss = blind.boss,
             boss_colour = blind.boss_colour,
             discovered = blind.discovered,
-            atlas = blind.atlas
+            atlas = blind.atlas,
+            debuff_text = blind.debuff_text
         }
         -- Now we replace the others
         G.P_BLINDS[blind.slug] = blind_obj
@@ -72,10 +76,32 @@ function SMODS.injectBlinds()
         -- Setup Localize text
         G.localization.descriptions["Blind"][blind.slug] = blind.loc_txt
 
-        sendDebugMessage("The Blind named " ..
-            blind.name .. " with the slug " .. blind.slug .. " have been registered at the id " .. id .. ".")
+        sendInfoMessage("Registered Blind " .. blind.name .. " with the slug " .. blind.slug .. " at ID " .. id .. ".", 'BlindAPI')
     end
-    SMODS.BUFFERS.Blinds = {}
+end
+
+function SMODS.Blind:take_ownership(slug)
+    if not (string.sub(slug, 1, 3) == 'bl_') then slug = 'bl_' .. slug end
+    local obj = G.P_BLINDS[slug]
+    if not obj then
+        sendWarnMessage('Tried to take ownership of non-existent Blind: ' .. slug, 'BlindAPI')
+        return nil
+    end
+    if SMODS.Blinds[slug] then
+        sendWarnMessage('Can only take ownership of unclaimed vanilla Blinds! ' ..
+            slug .. ' is already registered', 'BlindAPI')
+        return nil
+    end
+    o = {}
+    setmetatable(o, self)
+    self.__index = self
+    o.loc_txt = G.localization.descriptions['Blind'][slug]
+    o.slug = slug
+    for k, v in pairs(obj) do
+        o[k] = v
+    end
+	o.taken_ownership = true
+	return o
 end
 
 local set_blindref = Blind.set_blind;
@@ -94,10 +120,10 @@ function Blind:set_blind(blind, reset, silent)
         self.children.animatedSprite.states = prev_anim.states
         self.children.animatedSprite.states.visible = prev_anim.states.visible
         self.children.animatedSprite.states.drag.can = prev_anim.states.drag.can
-        for _k, v in pairs(SMODS.Blinds) do
-            if v.set and type(v.set) == 'function' and self.config.blind.key == _k then
-                v.set(self, blind, reset, silent)
-            end
+        local key = self.config.blind.key
+        local blind_obj = SMODS.Blinds[key]
+        if blind_obj and blind_obj.set_blind and type(blind_obj.set_blind) == 'function' then
+            blind_obj.set_blind(self, blind, reset, silent)
         end
     end
     for _, v in ipairs(G.playing_cards) do
@@ -110,22 +136,119 @@ end
 
 local blind_disable_ref = Blind.disable
 function Blind:disable()
-    for _k,v in pairs(SMODS.Blinds) do
-        if v.disable and type(v.disable) == 'function' and self.config.blind.key == _k then
-            v.disable(self)
-        end
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.disable and type(blind_obj.disable) == 'function' then
+        blind_obj.disable(self)
     end
     blind_disable_ref(self)
 end
 
 local blind_defeat_ref = Blind.defeat
 function Blind:defeat(silent)
-    for _k,v in pairs(SMODS.Blinds) do
-        if v.defeat and type(v.defeat) == 'function' and self.config.blind.key == _k then
-            v.defeat(self, silent)
-        end
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.defeat and type(blind_obj.defeat) == 'function' then
+        blind_obj.set_blind(self, silent)
     end
     blind_defeat_ref(self, silent)
+end
+
+local blind_debuff_card_ref = Blind.debuff_card
+function Blind:debuff_card(card, from_blind)
+    blind_debuff_card_ref(self, card, from_blind)
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.debuff_card and type(blind_obj.debuff_card) == 'function' and not self.disabled then
+        blind_obj.debuff_card(self, card, from_blind)
+    end
+end
+
+local blind_stay_flipped_ref = Blind.stay_flipped
+function Blind:stay_flipped(area, card)
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.stay_flipped and type(blind_obj.stay_flipped) == 'function' and not self.disabled and area == G.hand then
+        return blind_obj.stay_flipped(self, area, card)
+    end
+    return blind_stay_flipped_ref(self, area, card)
+end
+
+local blind_drawn_to_hand_ref = Blind.drawn_to_hand
+function Blind:drawn_to_hand()
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.drawn_to_hand and type(blind_obj.drawn_to_hand) == 'function' and not self.disabled then
+        blind_obj.drawn_to_hand(self)
+    end
+    blind_drawn_to_hand_ref(self)
+end
+
+local blind_debuff_hand_ref = Blind.debuff_hand
+function Blind:debuff_hand(cards, hand, handname, check)
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.debuff_hand and type(blind_obj.debuff_hand) == 'function' and not self.disabled then
+        return blind_obj.debuff_hand(self, cards, hand, handname, check)
+    end
+    return blind_debuff_hand_ref(self, cards, hand, handname, check)
+end
+
+local blind_modify_hand_ref = Blind.modify_hand
+function Blind:modify_hand(cards, poker_hands, text, mult, hand_chips)
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.modify_hand and type(blind_obj.modify_hand) == 'function' and not self.debuff then
+        return blind_obj.modify_hand(cards, poker_hands, text, mult, hand_chips)
+    end
+    return blind_modify_hand_ref(self, cards, poker_hands, text, mult, hand_chips)
+end
+
+local blind_press_play_ref = Blind.press_play
+function Blind:press_play()
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.press_play and type(blind_obj.press_play) == 'function' and not self.disabled then
+        return blind_obj.press_play(self)
+    end
+    return blind_press_play_ref(self)
+end
+
+local blind_get_loc_debuff_text_ref = Blind.get_loc_debuff_text
+function Blind:get_loc_debuff_text()
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    if blind_obj and blind_obj.get_loc_debuff_text and type(blind_obj.get_loc_debuff_text) == 'function' then
+        return blind_obj.get_loc_debuff_text(self)
+    end
+    return blind_get_loc_debuff_text_ref(self)
+end
+
+local blind_set_text = Blind.set_text
+function Blind:set_text()
+    local key = self.config.blind.key
+    local blind_obj = SMODS.Blinds[key]
+    local loc_vars = nil
+    if blind_obj and blind_obj.loc_def and type(blind_obj.loc_def) == 'function' and not self.disabled then
+        loc_vars = blind_obj.loc_def(self)
+        local loc_target = localize { type = 'raw_descriptions', key = self.config.blind.key, set = 'Blind', vars = loc_vars or self.config.blind.vars }
+        if loc_target then
+            self.loc_name = self.name == '' and self.name or
+                localize { type = 'name_text', key = self.config.blind.key, set = 'Blind' }
+            self.loc_debuff_text = ''
+            for k, v in ipairs(loc_target) do
+                self.loc_debuff_text = self.loc_debuff_text .. v .. (k <= #loc_target and ' ' or '')
+            end
+            self.loc_debuff_lines[1] = loc_target[1] or ''
+            self.loc_debuff_lines[2] = loc_target[2] or ''
+        else
+            self.loc_name = ''; self.loc_debuff_text = ''
+            self.loc_debuff_lines[1] = ''
+            self.loc_debuff_lines[2] = ''
+        end
+        return
+    end
+    blind_set_text(self)
 end
 
 function create_UIBox_blind_choice(type, run_info)
@@ -369,7 +492,7 @@ function create_UIBox_your_collection_blinds(exit)
     end
 
     local blinds_per_row = math.ceil(#blind_tab / 6)
-    sendDebugMessage("Blinds per row:" .. tostring(blinds_per_row))
+    sendTraceMessage("Blinds per row:" .. tostring(blinds_per_row), 'BlindAPI')
 
     table.sort(blind_tab, function(a, b) return a.order < b.order end)
 
@@ -426,7 +549,6 @@ function create_UIBox_your_collection_blinds(exit)
             end
         end
         local row = math.ceil((k - 1) / blinds_per_row + 0.001)
-        sendDebugMessage("Y:" .. tostring(row) .. " X:" .. tostring(1 + ((k - 1) % 6)))
         table.insert(blind_matrix[row], {
             n = G.UIT.C,
             config = { align = "cm", padding = 0.1 },

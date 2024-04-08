@@ -62,8 +62,7 @@ function SMODS.injectDecks()
         -- Setup Localize text
         G.localization.descriptions["Back"][deck.slug] = deck.loc_txt
 
-        sendDebugMessage("The Deck named " ..
-        deck.name .. " with the slug " .. deck.slug .. " have been registered at the id " .. id .. ".")
+        sendInfoMessage("Registered Deck " .. deck.name .. " with the slug " .. deck.slug .. " at ID " .. id .. ".", 'DeckAPI')
     end
 end
 
@@ -71,8 +70,8 @@ local back_initref = Back.init;
 function Back:init(selected_back)
 	back_initref(self, selected_back)
 	self.atlas = "centers"
-    if selected_back.config.atlas then
-        self.atlas = selected_back.config.atlas
+    if self.effect.center.config.atlas then
+        self.atlas = self.effect.center.config.atlas
     end
 end
 
